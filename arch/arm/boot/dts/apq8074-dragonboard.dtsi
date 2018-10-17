@@ -551,10 +551,6 @@
 	};
 };
 
-&spi_epm {
-	status = "disabled";
-};
-
 &pm8941_lsid1 {
 	qcom,leds@d000 {
 		qcom,rgb_2 {

@@ -697,25 +697,6 @@
 	};
 };
 
-&spi_epm {
-	epm-adc@0 {
-		compatible = "cy,epm-adc-cy8c5568lti-114";
-		reg = <0>;
-		interrupt-parent = <&msmgpio>;
-		spi-max-frequency = <960000>;
-		qcom,channels = <31>;
-		qcom,gain = <100 100 100 100 100 100 100 100 100 100
-				100 100 100 100 100 100 1 1 1 1
-				1 1 1 1 1 1 1 1 1 1
-				1>;
-		qcom,rsense = <10 10 10 10 100 200 500 10 10 10
-				200 200 10 500 10 10 1 1 1 1
-				1 1 1 1 1 1 1 1 1 1
-				1>;
-		qcom,channel-type = <0xf0000000>;
-	};
-};
-
 &dsi_tosh_720_vid {
        qcom,cont-splash-enabled;
 };
