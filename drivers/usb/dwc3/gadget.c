@@ -2464,7 +2464,11 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	}
 
 	if (dotg && dotg->otg.phy)
+#ifdef CONFIG_VENDOR_SMARTISAN
+		usb_phy_set_power(dotg->otg.phy, 500);
+#else
 		usb_phy_set_power(dotg->otg.phy, 0);
+#endif
 
 	if (dwc->gadget.speed != USB_SPEED_UNKNOWN)
 		dwc3_disconnect_gadget(dwc);

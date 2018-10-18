@@ -1140,6 +1140,19 @@ static struct android_usb_function audio_function = {
 };
 #endif
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+/* CHARGE_ONLY */
+static int charge_only_function_bind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	return 0;
+}
+
+static struct android_usb_function charge_only_fucntion = {
+	.name		= "charge_only",
+	.bind_config	= charge_only_function_bind_config,
+};
+#endif
 
 /* DIAG */
 static char diag_clients[32];	    /*enabled DIAG clients- "diag[,diag_mdm]" */
@@ -2124,6 +2137,9 @@ static struct android_usb_function *supported_functions[] = {
 	&uasp_function,
 #ifdef CONFIG_SND_RAWMIDI
 	&midi_function,
+#endif
+#ifdef CONFIG_VENDOR_SMARTISAN
+	&charge_only_fucntion,
 #endif
 	NULL
 };

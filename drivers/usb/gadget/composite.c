@@ -1139,6 +1139,9 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 			cdev->desc.bMaxPacketSize0 =
 				cdev->gadget->ep0->maxpacket;
 			cdev->vbus_draw_units = 2;
+#ifdef CONFIG_VENDOR_SMARTISAN
+			usb_gadget_vbus_draw(gadget, 500);
+#endif
 			if (gadget_is_superspeed(gadget)) {
 				if (gadget->speed >= USB_SPEED_SUPER) {
 					cdev->desc.bcdUSB = cpu_to_le16(0x0300);
@@ -1605,7 +1608,11 @@ composite_suspend(struct usb_gadget *gadget)
 
 	cdev->suspended = 1;
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	usb_gadget_vbus_draw(gadget, 500);
+#else
 	usb_gadget_vbus_draw(gadget, 2);
+#endif
 }
 
 static void
