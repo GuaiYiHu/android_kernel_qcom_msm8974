@@ -47,6 +47,14 @@ endif
 
 # MSM8974
    zreladdr-$(CONFIG_ARCH_MSM8974)	:= 0x00008000
+ifdef CONFIG_VENDOR_SMARTISAN
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v10-msm8974pro-ab-pm8941.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v20-msm8974pro-ab-pm8941.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v30-msm8974pro-ab-pm8941.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v30-msm8974pro-ac-pm8941.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v40-msm8974pro-ab-pm8941.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= sfo-v40-msm8974pro-ac-pm8941.dtb
+else
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-cdp.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-fluid.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-liquid.dtb
@@ -76,6 +84,7 @@ endif
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-liquid.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-mtp.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pma8084-pm8941-mtp.dtb
+endif
 
 # APQ8084
    zreladdr-$(CONFIG_ARCH_APQ8084)	:= 0x00008000

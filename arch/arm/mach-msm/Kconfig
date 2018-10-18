@@ -3043,6 +3043,21 @@ config KRAIT_REGULATOR
 	 line from the PMIC. This supply line is powered by multiple
 	 regulators running in ganged mode inside the PMIC. Enable
 	 this option to support such configurations.
+
+config SMARTISAN_MSM8974SFO
+	tristate "Smartisan Sanfrancisco Customization"
+	help
+	 Support Smartisan Sanfrancisco product
+
+config SMARTISAN_MSM8974SFO_LTE
+	tristate "Smartisan Sanfrancisco LTE Customization"
+	help
+	 Support Smartisan Sanfrancisco product LTE
+
+config SFO_LINEOUT_HIFI
+	tristate "Smartisan Sanfrancisco HiFi Line_Out OPA solution"
+	help
+	 Support Smartisan Sanfrancisco HiFi Solution
 endif
 
 config KERNEL_TEXT_MPU_PROT

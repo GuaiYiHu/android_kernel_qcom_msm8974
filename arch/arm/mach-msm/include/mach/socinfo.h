@@ -32,6 +32,13 @@
 #define SOCINFO_VERSION_MINOR(ver) (ver & 0x0000ffff)
 
 #ifdef CONFIG_OF
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define of_board_is_sfo()	of_machine_is_compatible("qcom,sfo")
+#define of_board_is_sfo_v10()	of_machine_is_compatible("qcom,sfo-v10")
+#define of_board_is_sfo_v20()	of_machine_is_compatible("qcom,sfo-v20")
+#define of_board_is_sfo_v30()	of_machine_is_compatible("qcom,sfo-v30")
+#define of_board_is_sfo_v40()	of_machine_is_compatible("qcom,sfo-v40")
+#endif
 #define of_board_is_cdp()	of_machine_is_compatible("qcom,cdp")
 #define of_board_is_sim()	of_machine_is_compatible("qcom,sim")
 #define of_board_is_rumi()	of_machine_is_compatible("qcom,rumi")
@@ -66,6 +73,12 @@
 #define early_machine_is_msmsamarium()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msmsamarium")
 #else
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define of_board_is_sfo()		0
+#define of_board_is_sfo_v10()		0
+#define of_board_is_sfo_v20()		0
+#define of_board_is_sfo_v30()		0
+#endif
 #define of_board_is_sim()		0
 #define of_board_is_rumi()		0
 #define of_board_is_fluid()		0

@@ -4881,6 +4881,23 @@ static struct clk_lookup msm_clocks_8974pro_only[] __initdata = {
 	CLK_LOOKUP("cam_clk", camss_mclk2_clk.c, "2.qcom,camera"),
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static struct clk_lookup msm_clocks_8974pro_sfo_only[] __initdata = {
+	CLK_LOOKUP("gpll4", gpll4_clk_src.c, ""),
+	CLK_LOOKUP("sleep_clk", gcc_sdcc1_cdccal_sleep_clk.c, "msm_sdcc.1"),
+	CLK_LOOKUP("cal_clk", gcc_sdcc1_cdccal_ff_clk.c, "msm_sdcc.1"),
+	CLK_LOOKUP("cam_src_clk", mclk2_clk_src.c, "6c.qcom,camera"),
+	CLK_LOOKUP("cam_src_clk", mclk2_clk_src.c, "6c.qcom,eeprom"),
+	CLK_LOOKUP("nfc_clk", cxo_a1_pin.c, "nfc-nci"),
+	CLK_LOOKUP("cam_src_clk", cxo_a2.c, "qcom,camera"),
+	CLK_LOOKUP("cam_clk", camss_mclk2_clk.c, "6c.qcom,camera"),
+	CLK_LOOKUP("cam_clk", camss_mclk2_clk.c, "6c.qcom,eeprom"),
+	CLK_LOOKUP("cam_clk", camss_mclk0_clk.c, "3e.qcom,camera"),
+	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9926000.i2c"),
+	CLK_LOOKUP("core_clk", gcc_blsp1_qup4_i2c_apps_clk.c, "f9926000.i2c"),
+};
+#endif
+
 static struct clk_lookup msm_clocks_8974_only[] __initdata = {
 	CLK_LOOKUP("cam_src_clk", mmss_gp1_clk_src.c, "90.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_gp1_clk.c, "90.qcom,camera"),
@@ -5498,6 +5515,9 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 
 static struct clk_lookup msm_clocks_8974[ARRAY_SIZE(msm_clocks_8974_common)
 	+ ARRAY_SIZE(msm_clocks_8974_only)
+#ifdef CONFIG_VENDOR_SMARTISAN
+	+ ARRAY_SIZE(msm_clocks_8974pro_sfo_only)
+#endif
 	+ ARRAY_SIZE(msm_clocks_8974pro_only)];
 
 static struct pll_config_regs mmpll0_regs __initdata = {
@@ -5861,11 +5881,19 @@ static void __init msm8974_clock_pre_init(void)
 		msm8974_clock_init_data.size +=
 			ARRAY_SIZE(msm_clocks_8974_only);
 	} else if (cpu_is_msm8974pro()) {
+#ifdef CONFIG_VENDOR_SMARTISAN
+		memcpy(msm_clocks_8974 + ARRAY_SIZE(msm_clocks_8974_common),
+		       msm_clocks_8974pro_sfo_only,
+		       sizeof(msm_clocks_8974pro_sfo_only));
+		msm8974_clock_init_data.size +=
+			ARRAY_SIZE(msm_clocks_8974pro_sfo_only);
+#else
 		memcpy(msm_clocks_8974 + ARRAY_SIZE(msm_clocks_8974_common),
 		       msm_clocks_8974pro_only,
 		       sizeof(msm_clocks_8974pro_only));
 		msm8974_clock_init_data.size +=
 			ARRAY_SIZE(msm_clocks_8974pro_only);
+#endif
 	}
 
 	clk_ops_pixel_clock = clk_ops_pixel;

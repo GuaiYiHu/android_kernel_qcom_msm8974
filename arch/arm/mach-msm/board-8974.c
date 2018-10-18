@@ -168,7 +168,11 @@ void __init msm8974_init(void)
 	if (socinfo_init() < 0)
 		pr_err("%s: socinfo_init() failed\n", __func__);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	sfo_msm_8974_init_gpiomux();
+#else
 	msm_8974_init_gpiomux();
+#endif
 	regulator_has_full_constraints();
 	board_dt_populate(adata);
 	msm8974_add_drivers();
