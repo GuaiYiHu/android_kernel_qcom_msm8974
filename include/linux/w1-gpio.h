@@ -17,7 +17,11 @@
  */
 struct w1_gpio_platform_data {
 	unsigned int pin;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	unsigned int is_open_drain;
+#else
 	unsigned int is_open_drain:1;
+#endif
 	void (*enable_external_pullup)(int enable);
 };
 

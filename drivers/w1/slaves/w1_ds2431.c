@@ -41,6 +41,10 @@
 #define W1_F2D_READ_RETRIES		10
 #define W1_F2D_READ_MAXLEN		8
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+char color = 'E';
+#endif
+
 /*
  * Check the file size bounds and adjusts count as needed.
  * This would not be needed if the file size didn't reset to 0 after a write.
@@ -130,6 +134,54 @@ static ssize_t w1_f2d_read_bin(struct file *filp, struct kobject *kobj,
 
 	return count;
 }
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+static ssize_t w1_slave_attribute_show_color(struct device *dev, struct device_attribute *attr, char *buf)
+{
+
+	ssize_t count;
+	char data_buf[25] = {0}, tmp;
+
+	data_buf[1] = 0xAA;
+	if (color == 'E') {
+		tmp = data_buf[1] % 16 + 0x30;
+		if ((tmp >= '0' && tmp <= '9'))
+			color = tmp;
+		else
+			color = 'E';
+	}
+	count = sprintf(buf, "%c\n", color);
+
+	return count;
+}
+
+#define W1_SLAVE_ATTR_RO(_name, _mode)				\
+	struct device_attribute w1_slave_attribute_##_name =	\
+		__ATTR(w1_slave_##_name, _mode,		\
+		       w1_slave_attribute_show_##_name, NULL)
+
+static W1_SLAVE_ATTR_RO(color, S_IRUGO);
+
+static struct attribute *w1_slave_default_attrs[] = {
+	&w1_slave_attribute_color.attr,
+	NULL
+};
+
+static struct attribute_group w1_slave_defattr_group = {
+	.attrs = w1_slave_default_attrs,
+};
+
+int w1_create_slave_attributes(struct w1_slave *slave)
+{
+	return sysfs_create_group(&slave->dev.kobj, &w1_slave_defattr_group);
+}
+
+void w1_destroy_slave_attributes(struct w1_slave *slave)
+{
+	color = 'E';
+	sysfs_remove_group(&slave->dev.kobj, &w1_slave_defattr_group);
+}
+#endif
 
 /*
  * Writes to the scratchpad and reads it back for verification.
@@ -276,11 +328,17 @@ static struct bin_attribute w1_f2d_bin_attr = {
 
 static int w1_f2d_add_slave(struct w1_slave *sl)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	w1_create_slave_attributes(sl);
+#endif
 	return sysfs_create_bin_file(&sl->dev.kobj, &w1_f2d_bin_attr);
 }
 
 static void w1_f2d_remove_slave(struct w1_slave *sl)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	w1_destroy_slave_attributes(sl);
+#endif
 	sysfs_remove_bin_file(&sl->dev.kobj, &w1_f2d_bin_attr);
 }
 

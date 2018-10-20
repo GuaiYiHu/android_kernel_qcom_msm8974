@@ -46,8 +46,13 @@ MODULE_AUTHOR("Evgeniy Polyakov <zbr@ioremap.net>");
 MODULE_DESCRIPTION("Driver for 1-wire Dallas network protocol.");
 
 static int w1_timeout = 10;
+#ifdef CONFIG_VENDOR_SMARTISAN
+int w1_max_slave_count = 1;
+int w1_max_slave_ttl = 1;
+#else
 int w1_max_slave_count = 10;
 int w1_max_slave_ttl = 10;
+#endif
 
 module_param_named(timeout, w1_timeout, int, 0);
 module_param_named(max_slave_count, w1_max_slave_count, int, 0);
