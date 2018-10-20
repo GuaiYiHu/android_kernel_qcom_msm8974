@@ -899,11 +899,13 @@ static u32 vid_dec_set_meta_buffers(struct video_client_ctx *client_ctx,
 	vcd_meta_buffer->offset = meta_buffers->offset;
 	vcd_meta_buffer->pmem_fd_iommu = meta_buffers->pmem_fd_iommu;
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 	if (meta_buffers->count > MAX_META_BUFFERS) {
 		ERR("meta buffers maximum count reached, count = %d",
 			meta_buffers->count);
 		return false;
 	}
+#endif
 
 	if (!vcd_get_ion_status()) {
 		pr_err("PMEM Not available\n");
@@ -1110,11 +1112,13 @@ static u32 vid_dec_set_h264_mv_buffers(struct video_client_ctx *client_ctx,
 	vcd_h264_mv_buffer->pmem_fd = mv_data->pmem_fd;
 	vcd_h264_mv_buffer->offset = mv_data->offset;
 
+#ifndef CONFIG_VENDOR_SMARTISAN
 	if (mv_data->count > MAX_MV_BUFFERS) {
 		ERR("MV buffers maximum count reached, count = %d",
 			mv_data->count);
 		return false;
 	}
+#endif
 
 	if (!vcd_get_ion_status()) {
 		pr_err("PMEM not available\n");
