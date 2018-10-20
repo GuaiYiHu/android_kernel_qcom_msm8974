@@ -1025,6 +1025,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 
 	switch (event) {
 	case MDSS_EVENT_UNBLANK:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		fb_notifier_call_chain(LCD_EVENT_ON_START, NULL);
+#endif
 		rc = mdss_dsi_on(pdata);
 		mdss_dsi_op_mode_config(pdata->panel_info.mipi.mode,
 							pdata);
@@ -1035,8 +1038,14 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		ctrl_pdata->ctrl_state |= CTRL_STATE_MDP_ACTIVE;
 		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_unblank(pdata);
+#ifdef CONFIG_VENDOR_SMARTISAN
+		fb_notifier_call_chain(LCD_EVENT_ON_END, NULL);
+#endif
 		break;
 	case MDSS_EVENT_BLANK:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		fb_notifier_call_chain(LCD_EVENT_OFF_START, NULL);
+#endif
 		if (ctrl_pdata->off_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_blank(pdata);
 		break;
@@ -1045,6 +1054,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE)
 			rc = mdss_dsi_blank(pdata);
 		rc = mdss_dsi_off(pdata);
+#ifdef CONFIG_VENDOR_SMARTISAN
+		fb_notifier_call_chain(LCD_EVENT_OFF_END, NULL);
+#endif
 		break;
 	case MDSS_EVENT_CONT_SPLASH_FINISH:
 		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE)
@@ -1475,12 +1487,28 @@ int dsi_panel_device_register(struct device_node *pan_node,
 
 	pinfo->panel_max_fps = mdss_panel_get_framerate(pinfo);
 	pinfo->panel_max_vtotal = mdss_panel_get_vtotal(pinfo);
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+	ctrl_pdata->disp_enn_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+		"qcom,platform-enn-enable-gpio", 0);
+
+	if (!gpio_is_valid(ctrl_pdata->disp_enn_en_gpio))
+		pr_err("%s:%d, Disp_en gpio not specified\n",
+						__func__, __LINE__);
+
+	ctrl_pdata->disp_enp_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+		"qcom,platform-enp-enable-gpio", 0);
+
+	if (!gpio_is_valid(ctrl_pdata->disp_enp_en_gpio))
+		pr_err("%s:%d, Disp_en gpio not specified\n",
+						__func__, __LINE__);
+#else
 	ctrl_pdata->disp_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 		"qcom,platform-enable-gpio", 0);
 
 	if (!gpio_is_valid(ctrl_pdata->disp_en_gpio))
 		pr_err("%s:%d, Disp_en gpio not specified\n",
 						__func__, __LINE__);
+#endif
 
 	if (pinfo->type == MIPI_CMD_PANEL) {
 		ctrl_pdata->disp_te_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,

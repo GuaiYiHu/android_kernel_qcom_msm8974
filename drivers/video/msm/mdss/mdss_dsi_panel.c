@@ -173,6 +173,26 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
 
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+	if (gpio_is_valid(ctrl_pdata->disp_enn_en_gpio)) {
+		rc = gpio_request(ctrl_pdata->disp_enn_en_gpio,
+						"disp_enn_enable");
+		if (rc) {
+			pr_err("request disp_enn_en gpio failed, rc=%d\n",
+				       rc);
+			goto disp_en_gpio_err;
+		}
+	}
+	if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio)) {
+		rc = gpio_request(ctrl_pdata->disp_enp_en_gpio,
+						"disp_enp_enable");
+		if (rc) {
+			pr_err("request disp_enp_en gpio failed, rc=%d\n",
+				       rc);
+			goto disp_en_gpio_err;
+		}
+	}
+#else
 	if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 		rc = gpio_request(ctrl_pdata->disp_en_gpio,
 						"disp_enable");
@@ -182,6 +202,7 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			goto disp_en_gpio_err;
 		}
 	}
+#endif
 	rc = gpio_request(ctrl_pdata->rst_gpio, "disp_rst_n");
 	if (rc) {
 		pr_err("request reset gpio failed, rc=%d\n",
@@ -201,8 +222,15 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 mode_gpio_err:
 	gpio_free(ctrl_pdata->rst_gpio);
 rst_gpio_err:
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+	if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio))
+		gpio_free(ctrl_pdata->disp_enp_en_gpio);
+	if (gpio_is_valid(ctrl_pdata->disp_enn_en_gpio))
+		gpio_free(ctrl_pdata->disp_enn_en_gpio);
+#else
 	if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 		gpio_free(ctrl_pdata->disp_en_gpio);
+#endif
 disp_en_gpio_err:
 	return rc;
 }
@@ -221,10 +249,19 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+	if (!gpio_is_valid(ctrl_pdata->disp_enn_en_gpio))
+		pr_debug("%s:%d, reset line not configured\n",
+			   __func__, __LINE__);
+	if (!gpio_is_valid(ctrl_pdata->disp_enp_en_gpio))
+		pr_debug("%s:%d, reset line not configured\n",
+			   __func__, __LINE__);
+#else
 	if (!gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 		pr_debug("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
 	}
+#endif
 
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio)) {
 		pr_debug("%s:%d, reset line not configured\n",
@@ -242,8 +279,17 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			return rc;
 		}
 		if (!pinfo->panel_power_on) {
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+			if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio))
+				gpio_set_value((ctrl_pdata->disp_enp_en_gpio), 1);
+			msleep(2);
+			if (gpio_is_valid(ctrl_pdata->disp_enn_en_gpio))
+				gpio_set_value((ctrl_pdata->disp_enn_en_gpio), 1);
+			msleep(10);
+#else
 			if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 				gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
+#endif
 
 			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
 				gpio_set_value((ctrl_pdata->rst_gpio),
@@ -266,10 +312,23 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			pr_debug("%s: Reset panel done\n", __func__);
 		}
 	} else {
+#if defined (CONFIG_SANFRANCISCO_LCD_JDI)
+		if (gpio_is_valid(ctrl_pdata->disp_enn_en_gpio)) {
+			gpio_set_value((ctrl_pdata->disp_enn_en_gpio), 0);
+			gpio_free(ctrl_pdata->disp_enn_en_gpio);
+		}
+		msleep(2);
+		if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio)) {
+			gpio_set_value((ctrl_pdata->disp_enp_en_gpio), 0);
+			gpio_free(ctrl_pdata->disp_enp_en_gpio);
+		}
+		msleep(2);
+#else
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
+#endif
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 		gpio_free(ctrl_pdata->rst_gpio);
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))

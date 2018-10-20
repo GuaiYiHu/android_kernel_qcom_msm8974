@@ -320,6 +320,13 @@ enum {
 	FB_BLANK_POWERDOWN     = VESA_POWERDOWN + 1
 };
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define LCD_EVENT_ON_START  0xFF0
+#define LCD_EVENT_ON_END    0xFF1
+#define LCD_EVENT_OFF_START 0xFF2
+#define LCD_EVENT_OFF_END   0xFF3
+#endif
+
 #define FB_VBLANK_VBLANKING	0x001	/* currently in a vertical blank */
 #define FB_VBLANK_HBLANKING	0x002	/* currently in a horizontal blank */
 #define FB_VBLANK_HAVE_VBLANK	0x004	/* vertical blanks can be detected */

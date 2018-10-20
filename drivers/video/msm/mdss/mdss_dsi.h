@@ -273,6 +273,10 @@ struct mdss_dsi_ctrl_pdata {
 	int disp_en_gpio;
 	int disp_te_gpio;
 	int mode_gpio;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int disp_enn_en_gpio; /* Smartisan added for SanFrancisco LCD */
+	int disp_enp_en_gpio; /* Smartisan added for SanFrancisco LCD */
+#endif
 	int disp_te_gpio_requested;
 	int bklt_ctrl;	/* backlight ctrl */
 	int pwm_period;
