@@ -123,9 +123,18 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.mclk_rate = TAIKO_EXT_CLK_RATE,
 	.gpio = 0,
 	.gpio_irq = 0,
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+	.gpio_level_insert = 0,
+#else
 	.gpio_level_insert = 1,
+#endif
 	.detect_extn_cable = true,
+#ifdef CONFIG_VENDOR_SMARTISAN
+	.micbias_enable_flags = 1 << MBHC_MICBIAS_ENABLE_THRESHOLD_HEADSET |
+				1 << MBHC_MICBIAS_ENABLE_REGULAR_HEADSET,
+#else
 	.micbias_enable_flags = 1 << MBHC_MICBIAS_ENABLE_THRESHOLD_HEADSET,
+#endif
 	.insert_detect = true,
 	.swap_gnd_mic = NULL,
 	.cs_enable_flags = (1 << MBHC_CS_ENABLE_POLLING |
@@ -697,10 +706,16 @@ static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("SPK_ultrasound amp",
 					 msm_ext_spkramp_ultrasound_event),
 
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+	SND_SOC_DAPM_MIC("Primary Mic", NULL),
+	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+	SND_SOC_DAPM_MIC("Secondary Mic", NULL),
+#else
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("ANCRight Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("ANCLeft Headset Mic", NULL),
+#endif
 	SND_SOC_DAPM_MIC("Analog Mic4", NULL),
 	SND_SOC_DAPM_MIC("Analog Mic6", NULL),
 	SND_SOC_DAPM_MIC("Analog Mic7", NULL),
@@ -1296,8 +1311,33 @@ static int msm_slim_0_rx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	    hw_param_interval(params, SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	pr_debug("%s()\n", __func__);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	slim0_rx_bit_format = params_format(params);
+	// if the PCM format specified by the params is invalid (either S24_LE or S16_LE), adapt to S16_LE
+	if (slim0_rx_bit_format != SNDRV_PCM_FORMAT_S16_LE
+	 && slim0_rx_bit_format != SNDRV_PCM_FORMAT_S24_LE) {
+		slim0_rx_bit_format = SNDRV_PCM_FORMAT_S16_LE;
+		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+					slim0_rx_bit_format);
+	}
+
+	slim0_rx_sample_rate = params_rate(params);
+	// if the sampling rate specified by the params is invalid(either 48k, 96k or 192k) for DSP, adapt to 48k
+	if (slim0_rx_sample_rate != SAMPLING_RATE_48KHZ
+	 && slim0_rx_sample_rate != SAMPLING_RATE_96KHZ
+	 && slim0_rx_sample_rate != SAMPLING_RATE_192KHZ)
+		slim0_rx_sample_rate = SAMPLING_RATE_48KHZ;
+	// Fix that DSP cannot work properly if PCM format is S16_LE and sample rate is 96kHz or 192kHz
+	if (slim0_rx_bit_format == SNDRV_PCM_FORMAT_S16_LE
+	 && slim0_rx_sample_rate > SAMPLING_RATE_48KHZ) {
+		slim0_rx_bit_format = SNDRV_PCM_FORMAT_S24_LE;
+		param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+					slim0_rx_bit_format);
+	}
+#else
 	param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
 				   slim0_rx_bit_format);
+#endif
 	rate->min = rate->max = slim0_rx_sample_rate;
 	channels->min = channels->max = msm_slim_0_rx_ch;
 
@@ -1698,7 +1738,11 @@ void *def_taiko_mbhc_cal(void)
 #undef S
 #define S(X, Y) ((WCD9XXX_MBHC_CAL_PLUG_TYPE_PTR(taiko_cal)->X) = (Y))
 	S(v_no_mic, 30);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	S(v_hs_max, 2600);
+#else
 	S(v_hs_max, 2400);
+#endif
 #undef S
 #define S(X, Y) ((WCD9XXX_MBHC_CAL_BTN_DET_PTR(taiko_cal)->X) = (Y))
 	S(c[0], 62);

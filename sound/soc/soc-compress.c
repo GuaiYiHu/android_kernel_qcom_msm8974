@@ -26,6 +26,60 @@
 #include <sound/initval.h>
 #include <sound/soc-dpcm.h>
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+static inline int param_is_mask(int p)
+{
+	return ((p >= SNDRV_PCM_HW_PARAM_FIRST_MASK) &&
+			(p <= SNDRV_PCM_HW_PARAM_LAST_MASK));
+}
+
+static inline int param_is_interval(int p)
+{
+	return (p >= SNDRV_PCM_HW_PARAM_FIRST_INTERVAL) &&
+			(p <= SNDRV_PCM_HW_PARAM_LAST_INTERVAL);
+}
+
+static inline struct snd_interval *param_to_interval(struct snd_pcm_hw_params *p, int n)
+{
+	return &(p->intervals[n - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL]);
+}
+
+static inline struct snd_mask *param_to_mask(struct snd_pcm_hw_params *p, int n)
+{
+	return &(p->masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK]);
+}
+
+static void param_set_mask(struct snd_pcm_hw_params *p, int n, unsigned bit)
+{
+	if (bit >= SNDRV_MASK_MAX)
+		return;
+	if (param_is_mask(n)) {
+		struct snd_mask *m = param_to_mask(p, n);
+		m->bits[0] = 0;
+		m->bits[1] = 0;
+		m->bits[bit >> 5] |= (1 << (bit & 31));
+	}
+}
+
+static void param_set_min(struct snd_pcm_hw_params *p, int n, unsigned int val)
+{
+	if (param_is_interval(n)) {
+		struct snd_interval *i = param_to_interval(p, n);
+		i->min = val;
+	}
+}
+
+static void param_set_int(struct snd_pcm_hw_params *p, int n, unsigned int val)
+{
+	if (param_is_interval(n)) {
+		struct snd_interval *i = param_to_interval(p, n);
+		i->min = val;
+		i->max = val;
+		i->integer = 1;
+	}
+}
+#endif
+
 static int soc_compr_open(struct snd_compr_stream *cstream)
 {
 	struct snd_soc_pcm_runtime *rtd = cstream->private_data;
@@ -476,11 +530,80 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 	struct snd_pcm_substream *fe_substream = fe->pcm->streams[0].substream;
 	struct snd_soc_platform *platform = fe->platform;
 	int ret = 0, stream;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	struct snd_pcm_hw_params *hw_params;
+	unsigned int bit_width = 16;
+	unsigned int sample_rate = 48000;
+#endif
 
 	if (cstream->direction == SND_COMPRESS_PLAYBACK)
 		stream = SNDRV_PCM_STREAM_PLAYBACK;
 	else
 		stream = SNDRV_PCM_STREAM_CAPTURE;
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+	hw_params = kzalloc(sizeof(*hw_params), GFP_KERNEL);
+	if (hw_params == NULL)
+		return -ENOMEM;
+
+	switch (params->codec.sample_rate) {
+	case SNDRV_PCM_RATE_8000:
+		sample_rate = 8000;
+		break;
+	case SNDRV_PCM_RATE_11025:
+		sample_rate = 11025;
+		break;
+	/* ToDo: What about 12K and 24K sample rates ? */
+	case SNDRV_PCM_RATE_16000:
+		sample_rate = 16000;
+		break;
+	case SNDRV_PCM_RATE_22050:
+		sample_rate = 22050;
+		break;
+	case SNDRV_PCM_RATE_32000:
+		sample_rate = 32000;
+		break;
+	case SNDRV_PCM_RATE_44100:
+		sample_rate = 44100;
+		break;
+	case SNDRV_PCM_RATE_48000:
+		sample_rate = 48000;
+		break;
+	case SNDRV_PCM_RATE_64000:
+		sample_rate = 64000;
+		break;
+	case SNDRV_PCM_RATE_88200:
+		sample_rate = 88200;
+		break;
+	case SNDRV_PCM_RATE_96000:
+		sample_rate = 96000;
+		break;
+	case SNDRV_PCM_RATE_176400:
+		sample_rate = 176400;
+		break;
+	case SNDRV_PCM_RATE_192000:
+		sample_rate = 192000;
+		break;
+	}
+
+	param_set_mask(hw_params, SNDRV_PCM_HW_PARAM_FORMAT, params->codec.format);
+	param_set_mask(hw_params, SNDRV_PCM_HW_PARAM_SUBFORMAT, SNDRV_PCM_SUBFORMAT_STD);
+
+	if (params->codec.format == SNDRV_PCM_FORMAT_S24_LE)
+		bit_width = 32;
+
+	param_set_int(hw_params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS, bit_width);
+	param_set_int(hw_params, SNDRV_PCM_HW_PARAM_FRAME_BITS, bit_width * params->codec.ch_in);
+	param_set_int(hw_params, SNDRV_PCM_HW_PARAM_CHANNELS, params->codec.ch_in);
+	param_set_int(hw_params, SNDRV_PCM_HW_PARAM_RATE, sample_rate);
+
+	if ((params->codec.sample_rate & (SNDRV_PCM_RATE_176400 | SNDRV_PCM_RATE_192000)) != 0)
+		param_set_min(hw_params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, 512);
+	else
+		param_set_min(hw_params, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, 128);
+
+	param_set_int(hw_params, SNDRV_PCM_HW_PARAM_PERIODS, 8);
+#endif
 
 	mutex_lock(&fe->card->dpcm_mutex);
 	/* first we call set_params for the platform driver
@@ -501,8 +624,13 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 			goto out;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	memcpy(&fe->dpcm[fe_substream->stream].hw_params, hw_params,
+			sizeof(struct snd_pcm_hw_params));
+#else
 	memcpy(&fe->dpcm[fe_substream->stream].hw_params, params,
 			sizeof(struct snd_pcm_hw_params));
+#endif
 
 	fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
 

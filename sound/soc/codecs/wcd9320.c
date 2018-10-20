@@ -11,6 +11,9 @@
  */
 #include <linux/module.h>
 #include <linux/init.h>
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include <linux/i2c.h>
+#endif
 #include <linux/firmware.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
@@ -37,6 +40,9 @@
 #include <linux/pm_qos.h>
 #include <linux/pm.h>
 #include <mach/cpuidle.h>
+#ifdef CONFIG_VENDOR_SMARTISAN
+#include <mach/socinfo.h>
+#endif
 #include "wcd9320.h"
 #include "wcd9xxx-resmgr.h"
 #include "wcd9xxx-common.h"
@@ -57,10 +63,27 @@
 /* RX_HPH_CNP_WG_TIME increases by 0.24ms */
 #define TAIKO_WG_TIME_FACTOR_US	240
 
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+#define GPIO_HEADSET_SEL 85
+#define GPIO_HIFI_OPA_EN 45
+
+struct hifi_work {
+	struct taiko_priv *taiko;
+	struct delayed_work hifi_close_dwork;
+};
+
+static struct hifi_work close_hifi_work;
+#endif
+
 static atomic_t kp_taiko_priv;
 static int spkr_drv_wrnd_param_set(const char *val,
 				   const struct kernel_param *kp);
 static int spkr_drv_wrnd = 1;
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+// Use this flag to indicate VREG_5V already enabled for dual battery design by Smartisan
+static int vdd_spkr_drv_on = 1;
+#endif
 
 static struct kernel_param_ops spkr_drv_wrnd_param_ops = {
 	.set = spkr_drv_wrnd_param_set,
@@ -2527,6 +2550,34 @@ static int taiko_codec_enable_aux_pga(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+static void hifi_switch_opa_close_work(struct work_struct *work)
+{
+	struct delayed_work *dwork;
+	struct hifi_work *hifi_work;
+	struct snd_soc_codec *codec;
+
+	dwork = to_delayed_work(work);
+	hifi_work = container_of(dwork, struct hifi_work, hifi_close_dwork);
+	codec = hifi_work->taiko->codec;
+
+	if (gpio_get_value_cansleep(GPIO_HEADSET_SEL) == 1) {
+		// headset switch to codec hph & disable opa
+		pr_debug("%s: switch to hph & close opa after lineout stoped 10s\n",
+			 __func__);
+		gpio_direction_output(GPIO_HEADSET_SEL, 0);
+		usleep_range(10000, 10000);
+		gpio_direction_output(GPIO_HIFI_OPA_EN, 0);
+		usleep_range(10000, 10000);
+		// Reprogram thresholds
+		snd_soc_update_bits(codec, TAIKO_A_MICB_CFILT_2_VAL, 0xFC, 0x98);
+		usleep_range(10000, 10000);
+		// Disable MIC BIAS Switch to VDDIO
+		snd_soc_update_bits(codec, TAIKO_A_MICB_2_MBHC, 0x80, 0x00);
+	}
+}
+#endif
+
 static int taiko_codec_enable_lineout(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
@@ -2557,6 +2608,29 @@ static int taiko_codec_enable_lineout(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+		if (w->shift == 3) {
+			pr_debug("%s: cancel delay work for closing hifi path\n",
+				 __func__);
+			cancel_delayed_work(&close_hifi_work.hifi_close_dwork);
+		}
+
+		if (gpio_get_value_cansleep(GPIO_HEADSET_SEL) == 0) {
+			// Adjust threshold if Mic Bias voltage changes
+			snd_soc_update_bits(codec, TAIKO_A_MICB_CFILT_2_VAL, 0xFC, 0x60);
+			usleep_range(10000, 10000);
+			// Enable MIC BIAS Switch to VDDIO
+			snd_soc_update_bits(codec, TAIKO_A_MICB_2_MBHC, 0x80, 0x80);
+			usleep_range(10000, 10000);
+			//enable opa & headset switch to opa output
+			pr_debug("%s: enable opa & headset before %s widget power up\n",
+					__func__, w->name);
+			gpio_direction_output(GPIO_HIFI_OPA_EN, 1);
+			usleep_range(10000, 10000);
+			gpio_direction_output(GPIO_HEADSET_SEL, 1);
+			usleep_range(10000, 10000);
+		}
+#endif
 		snd_soc_update_bits(codec, lineout_gain_reg, 0x40, 0x40);
 		break;
 	case SND_SOC_DAPM_POST_PMU:
@@ -2575,6 +2649,14 @@ static int taiko_codec_enable_lineout(struct snd_soc_dapm_widget *w,
 						 WCD9XXX_CLSH_REQ_DISABLE,
 						 WCD9XXX_CLSH_EVENT_POST_PA);
 		snd_soc_update_bits(codec, lineout_gain_reg, 0x40, 0x00);
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+		if (w->shift == 0) {
+			pr_debug("%s: schedule delay work to close hifi path after 5s\n",
+				 __func__);
+			schedule_delayed_work(&close_hifi_work.hifi_close_dwork,
+					msecs_to_jiffies(5000));
+		}
+#endif
 		pr_debug("%s: sleeping 5 ms after %s PA turn off\n",
 				__func__, w->name);
 		/* Wait for CnP time after PA disable */
@@ -2869,7 +2951,11 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		wcd9xxx_resmgr_cfilt_get(&taiko->resmgr, cfilt_sel_val);
 
 		if (strnstr(w->name, internal1_text, 30))
+#ifdef CONFIG_VENDOR_SMARTISAN
+			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0x00);
+#else
 			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+#endif
 		else if (strnstr(w->name, internal2_text, 30))
 			snd_soc_update_bits(codec, micb_int_reg, 0x1C, 0x1C);
 		else if (strnstr(w->name, internal3_text, 30))
@@ -3134,7 +3220,11 @@ static int taiko_codec_enable_vdd_spkr(struct snd_soc_dapm_widget *w,
 		  WCD9XXX_VDD_SPKDRV_NAME);
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (priv->spkdrv_reg && vdd_spkr_drv_on != 1) {
+#else
 		if (priv->spkdrv_reg) {
+#endif
 			ret = regulator_enable(priv->spkdrv_reg);
 			if (ret)
 				pr_err("%s: Failed to enable spkdrv_reg %s\n",
@@ -3160,7 +3250,11 @@ static int taiko_codec_enable_vdd_spkr(struct snd_soc_dapm_widget *w,
 			snd_soc_update_bits(codec, TAIKO_A_SPKR_DRV_EN, 0x80,
 					    0x80);
 		}
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (priv->spkdrv_reg && vdd_spkr_drv_on != 1) {
+#else
 		if (priv->spkdrv_reg) {
+#endif
 			ret = regulator_disable(priv->spkdrv_reg);
 			if (ret)
 				pr_err("%s: Failed to disable spkdrv_reg %s\n",
@@ -3495,6 +3589,23 @@ static int taiko_hph_pa_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+		if (gpio_get_value_cansleep(GPIO_HEADSET_SEL) == 1) {
+			// Reprogram thresholds
+			snd_soc_update_bits(codec, TAIKO_A_MICB_CFILT_2_VAL, 0xFC, 0x98);
+			usleep_range(10000, 10000);
+			// Disable MIC BIAS Switch to VDDIO
+			snd_soc_update_bits(codec, TAIKO_A_MICB_2_MBHC, 0x80, 0x00);
+			usleep_range(10000, 10000);
+			// headset switch to codec hph & disable opa
+			pr_debug("%s: switch to hph & close opa before %s power up\n",
+					__func__, w->name);
+			gpio_direction_output(GPIO_HEADSET_SEL, 0);
+			usleep_range(10000, 10000);
+			gpio_direction_output(GPIO_HIFI_OPA_EN, 0);
+			usleep_range(10000, 10000);
+		}
+#endif
 		/* Let MBHC module know PA is turning on */
 		wcd9xxx_resmgr_notifier_call(&taiko->resmgr, e_pre_on);
 		break;
@@ -5141,6 +5252,11 @@ static int taiko_codec_enable_slim_chmask(struct wcd9xxx_codec_dai_data *dai,
 			}
 		}
 	} else {
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (dai->ch_mask == 0) {
+			ret = 0;
+		} else {
+#endif
 		ret = wait_event_timeout(dai->dai_wait, (dai->ch_mask == 0),
 					 msecs_to_jiffies(
 						     TAIKO_SLIM_CLOSE_TIMEOUT));
@@ -5150,6 +5266,9 @@ static int taiko_codec_enable_slim_chmask(struct wcd9xxx_codec_dai_data *dai,
 		} else {
 			ret = 0;
 		}
+#ifdef CONFIG_VENDOR_SMARTISAN
+		}
+#endif
 	}
 	return ret;
 }
@@ -6248,14 +6367,32 @@ static int taiko_handle_pdata(struct taiko_priv *taiko)
 	}
 
 	/* Set micbias capless mode with tail current */
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (of_board_is_sfo_v40())
+		value = (pdata->micbias.bias1_cap_mode == MICBIAS_EXT_BYP_CAP ?
+			 0x06 : 0x16);
+	else
+		value = (pdata->micbias.bias1_cap_mode == MICBIAS_EXT_BYP_CAP ?
+			 0x00 : 0x16);
+#else
 	value = (pdata->micbias.bias1_cap_mode == MICBIAS_EXT_BYP_CAP ?
 		 0x00 : 0x16);
+#endif
 	snd_soc_update_bits(codec, TAIKO_A_MICB_1_CTL, 0x1E, value);
 	value = (pdata->micbias.bias2_cap_mode == MICBIAS_EXT_BYP_CAP ?
 		 0x00 : 0x16);
 	snd_soc_update_bits(codec, TAIKO_A_MICB_2_CTL, 0x1E, value);
+#ifdef CONFIG_VENDOR_SMARTISAN
+	if (of_board_is_sfo_v40())
+		value = (pdata->micbias.bias3_cap_mode == MICBIAS_EXT_BYP_CAP ?
+			 0x06 : 0x16);
+	else
+		value = (pdata->micbias.bias3_cap_mode == MICBIAS_EXT_BYP_CAP ?
+			 0x00 : 0x16);
+#else
 	value = (pdata->micbias.bias3_cap_mode == MICBIAS_EXT_BYP_CAP ?
 		 0x00 : 0x16);
+#endif
 	snd_soc_update_bits(codec, TAIKO_A_MICB_3_CTL, 0x1E, value);
 	value = (pdata->micbias.bias4_cap_mode == MICBIAS_EXT_BYP_CAP ?
 		 0x00 : 0x16);
@@ -7145,6 +7282,83 @@ static struct regulator *taiko_codec_find_regulator(struct snd_soc_codec *codec,
 	return NULL;
 }
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+/* isl98607 dcdc for hifi power supply*/
+static int __devinit isl98607_i2c_probe(struct i2c_client *client,
+			const struct i2c_device_id *dev_id)
+{
+	u8 buffer[2];
+
+	if (!i2c_check_functionality(client->adapter,
+			I2C_FUNC_I2C)) {
+		pr_err("%s: i2c_check_functionality failed\n",
+				__func__);
+		return -ENOSYS;
+	}
+
+	buffer[0] = 0x06;   //set VBST_OUT reg = 0x06
+	buffer[1] = 0x04;   //set VBST_OUT 5.85V
+	if( i2c_master_send(client, buffer, 2) < 0) {
+		pr_err("isl98607 i2c_master_send vout1 failed!\n" );
+		return -ENOSYS;
+	}
+
+	buffer[0] = 0x08;   //set VN_OUT reg = 0x08
+	buffer[1] = 0x04;   //set VN_OUT -5.7V
+	if( i2c_master_send(client, buffer, 2) < 0) {
+		pr_err("isl98607 i2c_master_send vout1 failed!\n" );
+		return -ENOSYS;
+	}
+
+	buffer[0] = 0x09;   //set VP_OUT reg = 0x09
+	buffer[1] = 0x04;   //set VP_OUT +5.7V
+	if( i2c_master_send(client, buffer, 2) < 0) {
+		pr_err("isl98607 i2c_master_send vout2 failed!\n" );
+		return -ENOSYS;
+	}
+
+	buffer[0] = 0x0F;   //set register 0x0F to lower VN ripple
+	buffer[1] = 0xD0;   //set ripple to 25mV
+	if( i2c_master_send(client, buffer, 2) < 0) {
+		pr_err("isl98607 i2c_master_send failed!\n" );
+		return -ENOSYS;
+	}
+
+	return 0;
+}
+
+static __devexit int isl98607_i2c_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static const struct i2c_device_id isl98607_id_table[] = {
+	{"isl98607_hpw_i2c", 0},
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, isl98607_id_table);
+
+#ifdef CONFIG_OF
+static struct of_device_id isl98607_match_table[] = {
+	{ .compatible = "intersil,isl98607-hpw",},
+	{ },
+};
+#else
+#define isl98607_match_table NULL
+#endif
+
+static struct i2c_driver isl98607_i2c_driver = {
+	.driver = {
+		.name = "isl98607_hpw_i2c",
+		.owner = THIS_MODULE,
+		.of_match_table = isl98607_match_table,
+	},
+	.probe = isl98607_i2c_probe,
+	.remove = __devexit_p(isl98607_i2c_remove),
+	.id_table = isl98607_id_table,
+};
+#endif
+
 static int taiko_codec_probe(struct snd_soc_codec *codec)
 {
 	struct wcd9xxx *control;
@@ -7338,6 +7552,26 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 	mutex_unlock(&dapm->codec->mutex);
 
 	codec->ignore_pmdown_time = 1;
+
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+	ret = gpio_request(GPIO_HIFI_OPA_EN, "hifi_opa_en");
+	if (ret) {
+		pr_err("%s: request hifi_opa_en gpio[%d] failed %d\n",
+			__func__, GPIO_HIFI_OPA_EN, ret);
+		return ret;
+	}
+
+	ret = gpio_request(GPIO_HEADSET_SEL, "headset_sel");
+	if (ret) {
+		pr_err("%s: request headset_sel gpio[%d] failed %d\n",
+			__func__, GPIO_HEADSET_SEL, ret);
+		return ret;
+	}
+
+	close_hifi_work.taiko = taiko;
+	INIT_DELAYED_WORK(&close_hifi_work.hifi_close_dwork, hifi_switch_opa_close_work);
+#endif
+
 	return ret;
 
 err_irq:
@@ -7454,7 +7688,25 @@ static struct platform_driver taiko_codec_driver = {
 
 static int __init taiko_codec_init(void)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int ret;
+
+	ret = platform_driver_register(&taiko_codec_driver);
+	if (ret) {
+		pr_err("%s: platform_driver_register taiko_codec driver failed!\n", __func__);
+		return ret;
+	}
+
+	ret = i2c_add_driver(&isl98607_i2c_driver);
+	if (ret) {
+		pr_err("%s: i2c_add_driver isl98607 driver failed!\n", __func__);
+		return ret;
+	}
+
+	return ret;
+#else
 	return platform_driver_register(&taiko_codec_driver);
+#endif
 }
 
 static void __exit taiko_codec_exit(void)

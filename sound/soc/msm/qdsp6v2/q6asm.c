@@ -1125,6 +1125,13 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {
+#ifdef CONFIG_VENDOR_SMARTISAN
+		struct audio_client *ac_mmap = (struct audio_client *)priv;
+		if (ac_mmap == NULL) {
+			pr_err("%s ac or priv NULL\n", __func__);
+			return -EINVAL;
+		}
+#endif
 
 		pr_debug("%s: Reset event is received: %d %d apr[%p]\n",
 				__func__,
@@ -1134,6 +1141,9 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 		atomic_set(&this_mmap.ref_cnt, 0);
 		apr_reset(this_mmap.apr);
 		this_mmap.apr = NULL;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		ac_mmap->mmap_apr = NULL;
+#endif
 		for (; i <= OUT; i++) {
 			list_for_each_safe(ptr, next,
 				&common_client.port[i].mem_map_handle) {
@@ -4604,6 +4614,9 @@ fail_cmd:
 
 int q6asm_get_apr_service_id(int session_id)
 {
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int svc_id;
+#endif
 	pr_debug("%s\n", __func__);
 
 	if (session_id <= 0 || session_id > SESSION_MAX) {
@@ -4611,7 +4624,25 @@ int q6asm_get_apr_service_id(int session_id)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+	mutex_lock(&session_lock);
+	if (!session[session_id]) {
+		pr_err("%s: session not active: %d\n", __func__, session_id);
+		mutex_unlock(&session_lock);
+		return -EINVAL;
+	} else if (session[session_id]->apr == NULL) {
+		pr_err("%s: audio client apr is NULL", __func__);
+		mutex_unlock(&session_lock);
+		return -EINVAL;
+	}
+
+	svc_id = ((struct apr_svc *)session[session_id]->apr)->id;
+	mutex_unlock(&session_lock);
+
+	return svc_id;
+#else
 	return ((struct apr_svc *)session[session_id]->apr)->id;
+#endif
 }
 
 

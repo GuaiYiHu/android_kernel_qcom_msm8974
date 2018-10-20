@@ -54,11 +54,18 @@
 #define NUM_DCE_PLUG_INS_DETECT 5
 #define NUM_ATTEMPTS_INSERT_DETECT 25
 #define NUM_ATTEMPTS_TO_REPORT 5
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define NUM_RETRY_TO_DETECT 3
+#endif
 
 #define FAKE_INS_LOW 10
 #define FAKE_INS_HIGH 80
 #define FAKE_INS_HIGH_NO_SWCH 150
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define FAKE_REMOVAL_MIN_PERIOD_MS 150
+#else
 #define FAKE_REMOVAL_MIN_PERIOD_MS 50
+#endif
 #define FAKE_INS_DELTA_SCALED_MV 300
 
 #define BUTTON_MIN 0x8000
@@ -100,8 +107,13 @@
  * Invalid voltage range for the detection
  * of plug type with current source
  */
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV 280
+#define WCD9XXX_CS_MEAS_INVALD_RANGE_HIGH_MV 450
+#else
 #define WCD9XXX_CS_MEAS_INVALD_RANGE_LOW_MV 160
 #define WCD9XXX_CS_MEAS_INVALD_RANGE_HIGH_MV 265
+#endif
 
 /*
  * Threshold used to detect euro headset
@@ -120,10 +132,21 @@
 /* RX_HPH_CNP_WG_TIME increases by 0.24ms */
 #define WCD9XXX_WG_TIME_FACTOR_US	240
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+#define WCD9XXX_V_CS_HS_MAX 700
+#else
 #define WCD9XXX_V_CS_HS_MAX 500
+#endif
 #define WCD9XXX_V_CS_NO_MIC 5
 #define WCD9XXX_MB_MEAS_DELTA_MAX_MV 80
 #define WCD9XXX_CS_MEAS_DELTA_MAX_MV 12
+
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+#define HPH_LINEOUT_SWITCH_GPIO 85
+#define HIFI_OPA_EN_GPIO 45
+
+static int hifi_en = 0;
+#endif
 
 static int impedance_detect_en;
 module_param(impedance_detect_en, int,
@@ -831,6 +854,26 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
 	if (!insertion) {
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+		if (gpio_get_value_cansleep(HPH_LINEOUT_SWITCH_GPIO) == 1) {
+			// headset switch to codec hph & disable opa
+			pr_debug("%s: switch to hph & close opa when plug type %d is removed\n",
+					__func__, mbhc->current_plug);
+			gpio_direction_output(HPH_LINEOUT_SWITCH_GPIO, 0);
+			usleep_range(10000, 10000);
+			gpio_direction_output(HIFI_OPA_EN_GPIO, 0);
+			usleep_range(10000, 10000);
+			// Reprogram thresholds
+			snd_soc_update_bits(mbhc->codec, WCD9XXX_A_MICB_CFILT_2_VAL, 0xFC, 0x98);
+			usleep_range(10000, 10000);
+			// Disable MIC BIAS Switch to VDDIO
+			snd_soc_update_bits(mbhc->codec, WCD9XXX_A_MICB_2_CTL, 0x80, 0x00);
+			hifi_en = 1;
+		} else {
+			hifi_en = 0;
+		}
+#endif
+
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
 		/*
@@ -2396,7 +2439,9 @@ static void wcd9xxx_mbhc_decide_swch_plug(struct wcd9xxx_mbhc *mbhc)
 		wcd9xxx_schedule_hs_detect_plug(mbhc,
 						&mbhc->correct_plug_swch);
 	} else if (plug_type == PLUG_TYPE_HEADPHONE) {
+#ifndef CONFIG_VENDOR_SMARTISAN
 		wcd9xxx_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
+#endif
 		wcd9xxx_cleanup_hs_polling(mbhc);
 		wcd9xxx_schedule_hs_detect_plug(mbhc,
 						&mbhc->correct_plug_swch);
@@ -3012,6 +3057,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 	enum wcd9xxx_mbhc_plug_type plug_type = PLUG_TYPE_INVALID;
 	unsigned long timeout;
 	int retry = 0, pt_gnd_mic_swap_cnt = 0;
+#ifdef CONFIG_VENDOR_SMARTISAN
+	int retry_headphone = 0;
+#endif
 	int highhph_cnt = 0;
 	bool correction = false;
 	bool current_source_enable;
@@ -3077,7 +3125,11 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		highhph_cnt = (plug_type == PLUG_TYPE_HIGH_HPH) ?
 					(highhph_cnt + 1) :
 					0;
+#ifdef CONFIG_VENDOR_SMARTISAN
+		highhph = ((retry + 1) % NUM_RETRY_TO_DETECT == 0) || wcd9xxx_mbhc_enable_mb_decision(highhph_cnt);
+#else
 		highhph = wcd9xxx_mbhc_enable_mb_decision(highhph_cnt);
+#endif
 		if (plug_type == PLUG_TYPE_INVALID) {
 			pr_debug("Invalid plug in attempt # %d\n", retry);
 			if (!mbhc->mbhc_cfg->detect_extn_cable &&
@@ -3089,7 +3141,13 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 				WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
 			}
 		} else if (plug_type == PLUG_TYPE_HEADPHONE) {
+#ifdef CONFIG_VENDOR_SMARTISAN
+			pr_debug("Good headphone detected %d times, continue polling\n", retry_headphone);
+			retry_headphone++;
+			if (retry_headphone == 3) {
+#else
 			pr_debug("Good headphone detected, continue polling\n");
+#endif
 			WCD9XXX_BCL_LOCK(mbhc->resmgr);
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
@@ -3100,6 +3158,21 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 						    SND_JACK_HEADPHONE);
 			}
 			WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+#ifdef CONFIG_VENDOR_SMARTISAN
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+				if (hifi_en == 1) {
+					if (gpio_get_value_cansleep(HPH_LINEOUT_SWITCH_GPIO) == 0) {
+						// headset switch to lineout & enable opa
+						pr_debug("%s: switch to lineout & enable opa when plug type %d is reported\n",
+								__func__, plug_type);
+						gpio_direction_output(HIFI_OPA_EN_GPIO, 1);
+						usleep_range(10000, 10000);
+						gpio_direction_output(HPH_LINEOUT_SWITCH_GPIO, 1);
+					}
+				}
+#endif
+			}
+#endif
 		} else if (plug_type == PLUG_TYPE_HIGH_HPH) {
 			pr_debug("%s: High HPH detected, continue polling\n",
 				  __func__);
@@ -3121,6 +3194,10 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 					continue;
 				else if (pt_gnd_mic_swap_cnt >
 					 GND_MIC_SWAP_THRESHOLD) {
+#ifdef CONFIG_VENDOR_SMARTISAN
+					pt_gnd_mic_swap_cnt = 0;
+					continue;
+#endif
 					/*
 					 * This is due to GND/MIC switch didn't
 					 * work,  Report unsupported plug
@@ -3135,6 +3212,32 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 				}
 			} else
 				pt_gnd_mic_swap_cnt = 0;
+
+#ifdef CONFIG_SFO_LINEOUT_HIFI
+			if (hifi_en == 1 && plug_type == PLUG_TYPE_HEADSET) {
+				if (gpio_get_value_cansleep(HPH_LINEOUT_SWITCH_GPIO) == 0) {
+					// Adjust threshold if Mic Bias voltage changes
+					snd_soc_update_bits(codec, WCD9XXX_A_MICB_CFILT_2_VAL, 0xFC, 0x60);
+					usleep_range(10000, 10000);
+					// Enable MIC BIAS Switch to VDDIO
+					snd_soc_update_bits(codec, WCD9XXX_A_MICB_2_CTL, 0x80, 0x80);
+					usleep_range(10000, 10000);
+					// headset switch to lineout & enable opa
+					pr_debug("%s: switch to lineout & enable opa when plug type %d is reported\n",
+							__func__, plug_type);
+					gpio_direction_output(HIFI_OPA_EN_GPIO, 1);
+					usleep_range(10000, 10000);
+					gpio_direction_output(HPH_LINEOUT_SWITCH_GPIO, 1);
+				} else {
+					// Adjust threshold if Mic Bias voltage changes
+					snd_soc_update_bits(codec, WCD9XXX_A_MICB_CFILT_2_VAL, 0xFC, 0x60);
+					usleep_range(10000, 10000);
+					// Enable MIC BIAS Switch to VDDIO
+					snd_soc_update_bits(codec, WCD9XXX_A_MICB_2_CTL, 0x80, 0x80);
+					usleep_range(10000, 10000);
+				}
+			}
+#endif
 
 			WCD9XXX_BCL_LOCK(mbhc->resmgr);
 			/* Turn off override/current source */
@@ -3270,10 +3373,17 @@ static void wcd9xxx_swch_irq_handler(struct wcd9xxx_mbhc *mbhc)
 			snd_soc_update_bits(codec, WCD9XXX_A_CDC_MBHC_B1_CTL,
 					    0x02, 0x00);
 
+#ifdef CONFIG_VENDOR_SMARTISAN
+			/* Pull down micbias to ground and HPH Switch to GND */
+			snd_soc_update_bits(codec,
+					mbhc->mbhc_bias_regs.ctl_reg, 0x81,
+					0x01);
+#else
 			/* Enable Mic Bias pull down and HPH Switch to GND */
 			snd_soc_update_bits(codec,
 					mbhc->mbhc_bias_regs.ctl_reg, 0x01,
 					0x01);
+#endif
 			snd_soc_update_bits(codec, WCD9XXX_A_MBHC_HPH, 0x01,
 					0x01);
 			/* Make sure mic trigger is turned off */
