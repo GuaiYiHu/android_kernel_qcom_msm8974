@@ -319,24 +319,23 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 #if defined (CONFIG_SANFRANCISCO_LCD_JDI)
 		if (gpio_is_valid(ctrl_pdata->disp_enn_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_enn_en_gpio), 0);
-			gpio_free(ctrl_pdata->disp_enn_en_gpio);
 		}
 		msleep(2);
 		if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_enp_en_gpio), 0);
-			gpio_free(ctrl_pdata->disp_enp_en_gpio);
 		}
 		msleep(2);
+		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 #else
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
-#endif
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 		gpio_free(ctrl_pdata->rst_gpio);
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))
 			gpio_free(ctrl_pdata->mode_gpio);
+#endif
 	}
 	return rc;
 }
