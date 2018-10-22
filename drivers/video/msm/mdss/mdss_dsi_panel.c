@@ -278,7 +278,11 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			pr_err("gpio request failed\n");
 			return rc;
 		}
+#ifdef CONFIG_VENDOR_SMARTISAN
+		if (true) {
+#else
 		if (!pinfo->panel_power_on) {
+#endif
 #if defined (CONFIG_SANFRANCISCO_LCD_JDI)
 			if (gpio_is_valid(ctrl_pdata->disp_enp_en_gpio))
 				gpio_set_value((ctrl_pdata->disp_enp_en_gpio), 1);
