@@ -85,8 +85,13 @@ static int fb_event_callback(struct notifier_block *self,
 	struct msm_fb_data_type *mfd;
 
 	if (!evdata) {
+#ifdef CONFIG_VENDOR_SMARTISAN
+		pr_debug("%s: event data not available\n", __func__);
+		return 0;
+#else
 		pr_err("%s: event data not available\n", __func__);
 		return NOTIFY_BAD;
+#endif
 	}
 
 	mfd = evdata->info->par;
