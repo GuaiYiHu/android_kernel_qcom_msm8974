@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,6 +30,10 @@ struct msm_camera_i2c_fn_t {
 		enum msm_camera_i2c_data_type);
 	int32_t (*i2c_read_seq)(struct msm_camera_i2c_client *, uint32_t,
 		uint8_t *, uint32_t);
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+	int32_t (*i2c_read_seq_addr)(struct msm_camera_i2c_client *, uint32_t,
+		uint32_t, uint8_t *, uint32_t, int);
+#endif
 	int (*i2c_write) (struct msm_camera_i2c_client *, uint32_t, uint16_t,
 		enum msm_camera_i2c_data_type);
 	int (*i2c_write_seq) (struct msm_camera_i2c_client *, uint32_t ,
@@ -95,6 +99,11 @@ int32_t msm_camera_qup_i2c_read(struct msm_camera_i2c_client *client,
 int32_t msm_camera_qup_i2c_read_seq(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint8_t *data, uint32_t num_byte);
 
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+int32_t msm_camera_qup_i2c_read_seq_addr(struct msm_camera_i2c_client *client,
+	uint32_t addr, uint32_t addr2, uint8_t *data, uint32_t num_byte, int enable);
+#endif
+
 int32_t msm_camera_qup_i2c_write(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
 	enum msm_camera_i2c_data_type data_type);
@@ -115,10 +124,6 @@ int32_t msm_camera_qup_i2c_write_table_w_microdelay(
 int32_t msm_camera_qup_i2c_write_conf_tbl(
 	struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_conf *reg_conf_tbl, uint16_t size,
-	enum msm_camera_i2c_data_type data_type);
-
-int32_t msm_camera_qup_i2c_poll(struct msm_camera_i2c_client *client,
-	uint32_t addr, uint16_t data,
 	enum msm_camera_i2c_data_type data_type);
 
 #endif

@@ -20,6 +20,7 @@
 #include <linux/spinlock.h>
 #include <linux/proc_fs.h>
 #include <linux/atomic.h>
+#include <linux/wait.h>
 #include <linux/videodev2.h>
 #include <linux/msm_ion.h>
 #include <linux/iommu.h>
@@ -401,7 +402,7 @@ int msm_create_command_ack_q(unsigned int session_id, unsigned int stream_id)
 
 	msm_init_queue(&cmd_ack->command_q);
 	INIT_LIST_HEAD(&cmd_ack->list);
-	init_completion(&cmd_ack->wait_complete);
+	init_waitqueue_head(&cmd_ack->wait);
 	cmd_ack->stream_id = stream_id;
 
 	msm_enqueue(&session->command_ack_q, &cmd_ack->list);
@@ -601,7 +602,7 @@ static long msm_private_ioctl(struct file *file, void *fh,
 		   spin_flags);
 		ret_cmd->event = *(struct v4l2_event *)arg;
 		msm_enqueue(&cmd_ack->command_q, &ret_cmd->list);
-		complete(&cmd_ack->wait_complete);
+		wake_up(&cmd_ack->wait);
 		spin_unlock_irqrestore(&(session->command_ack_q.lock),
 		   spin_flags);
 	}
@@ -704,9 +705,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		return -EIO;
 	}
 
-	/*re-init wait_complete */
-	INIT_COMPLETION(cmd_ack->wait_complete);
-
 	v4l2_event_queue(vdev, event);
 
 	if (timeout < 0) {
@@ -717,18 +715,23 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	}
 
 	/* should wait on session based condition */
-	rc = wait_for_completion_timeout(&cmd_ack->wait_complete,
+	do {
+		rc = wait_event_interruptible_timeout(cmd_ack->wait,
+			!list_empty_careful(&cmd_ack->command_q.list),
 			msecs_to_jiffies(timeout));
+		if (rc != -ERESTARTSYS)
+			break;
+	} while (1);
 
 	if (list_empty_careful(&cmd_ack->command_q.list)) {
 		if (!rc) {
 			pr_err("%s: Timed out\n", __func__);
 			rc = -ETIMEDOUT;
-		} else {
-			pr_err("%s: Error: No timeout but list empty!",
-					__func__);
+		}
+		if (rc < 0) {
+			pr_err("%s: rc = %d\n", __func__, rc);
 			mutex_unlock(&session->lock);
-			return -EINVAL;
+			return rc;
 		}
 	}
 
@@ -1076,7 +1079,6 @@ probe_end:
 
 static const struct of_device_id msm_dt_match[] = {
 	{.compatible = "qcom,msm-cam"},
-	{}
 }
 
 MODULE_DEVICE_TABLE(of, msm_dt_match);

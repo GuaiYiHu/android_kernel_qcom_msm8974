@@ -901,3 +901,7 @@ extern const struct spi_device_id *
 spi_get_device_id(const struct spi_device *sdev);
 
 #endif /* __LINUX_SPI_H */
+
+#ifdef CONFIG_VENDOR_SMARTISAN
+extern int spi_send_data_interface(unsigned char * spi_tx_buf, unsigned int size) ;
+#endif

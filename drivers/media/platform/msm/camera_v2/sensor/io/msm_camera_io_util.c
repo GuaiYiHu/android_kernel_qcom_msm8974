@@ -107,17 +107,6 @@ void msm_camera_io_memcpy(void __iomem *dest_addr,
 	msm_camera_io_dump(dest_addr, len);
 }
 
-void msm_camera_io_memcpy_mb(void __iomem *dest_addr,
-	void __iomem *src_addr, u32 len)
-{
-	int i;
-	u32 *d = (u32 *) dest_addr;
-	u32 *s = (u32 *) src_addr;
-
-	for (i = 0; i < (len / 4); i++)
-		msm_camera_io_w_mb(*s++, d++);
-}
-
 int msm_cam_clk_sel_src(struct device *dev, struct msm_cam_clk_info *clk_info,
 		struct msm_cam_clk_info *clk_src_info, int num_clk)
 {
@@ -151,12 +140,22 @@ int msm_cam_clk_enable(struct device *dev, struct msm_cam_clk_info *clk_info,
 {
 	int i;
 	int rc = 0;
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+	int once = 0;
+#endif
 	long clk_rate;
 	if (enable) {
 		for (i = 0; i < num_clk; i++) {
 			CDBG("%s enable %s\n", __func__,
 				clk_info[i].clk_name);
 			clk_ptr[i] = clk_get(dev, clk_info[i].clk_name);
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+			if (IS_ERR(clk_ptr[i])) {
+				clk_ptr[i] = clk_get_sys("qcom,camera", clk_info[i].clk_name);
+				if (!IS_ERR(clk_ptr[i]))
+					once = 1;
+			}
+#endif
 			if (IS_ERR(clk_ptr[i])) {
 				pr_err("%s get failed\n", clk_info[i].clk_name);
 				rc = PTR_ERR(clk_ptr[i]);
@@ -208,6 +207,10 @@ int msm_cam_clk_enable(struct device *dev, struct msm_cam_clk_info *clk_info,
 				usleep_range(clk_info[i].delay * 1000,
 					(clk_info[i].delay * 1000) + 1000);
 			}
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+			if (once)
+				break;
+#endif
 		}
 	} else {
 		for (i = num_clk - 1; i >= 0; i--) {

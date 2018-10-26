@@ -69,7 +69,7 @@ static int32_t msm_camera_qup_i2c_txdata(
 	rc = i2c_transfer(dev_client->client->adapter, msg, 1);
 	if (rc < 0)
 		S_I2C_DBG("msm_camera_qup_i2c_txdata faild 0x%x\n", saddr);
-	return rc;
+	return 0;
 }
 
 int32_t msm_camera_qup_i2c_read(struct msm_camera_i2c_client *client,
@@ -138,6 +138,64 @@ int32_t msm_camera_qup_i2c_read_seq(struct msm_camera_i2c_client *client,
 	}
 	return rc;
 }
+
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+int32_t msm_camera_qup_i2c_read_seq_addr(struct msm_camera_i2c_client *client,
+	uint32_t addr, uint32_t addr2, uint8_t *data, uint32_t num_byte,  int enable)
+{
+	int32_t rc = -EFAULT;
+	unsigned char buf[I2C_SEQ_REG_DATA_MAX];
+	int i;
+
+	if (enable) {
+		data[0] = addr >> 24;
+		data[1] = addr >> 16;
+		data[2] = addr >> BITS_PER_BYTE;
+		data[3] = addr;
+
+		data[4] = addr2 >> 24;
+		data[5] = addr2 >> 16;
+		data[6] = addr2 >> BITS_PER_BYTE;
+		data[7] = addr2;
+
+		rc = msm_camera_qup_i2c_rxdata(client, data, num_byte);
+		return rc;
+	}
+
+	if (client->addr_type == MSM_CAMERA_I2C_5B_ADDR) {
+		buf[0] = addr >> 24;
+		buf[1] = addr >> 16;
+		buf[2] = addr >> BITS_PER_BYTE;
+		buf[3] = addr;
+
+		buf[4] = addr2 >> 24;
+	} else if (client->addr_type == MSM_CAMERA_I2C_8B_ADDR) {
+		buf[0] = addr >> 24;
+		buf[1] = addr >> 16;
+		buf[2] = addr >> BITS_PER_BYTE;
+		buf[3] = addr;
+
+		buf[4] = addr2 >> 24;
+		buf[5] = addr2 >> 16;
+		buf[6] = addr2 >> BITS_PER_BYTE;
+		buf[7] = addr2;
+	}
+
+	rc = msm_camera_qup_i2c_rxdata(client, buf, num_byte);
+	if (rc < 0) {
+		pr_err("%s fail\n", __func__);
+		return rc;
+	}
+
+	S_I2C_DBG("%s addr = 0x%x", __func__, addr);
+	for (i = 0; i < num_byte; i++) {
+		data[i] = buf[i];
+		S_I2C_DBG("Byte %d: 0x%x\n", i, buf[i]);
+		S_I2C_DBG("Data: 0x%x\n", data[i]);
+	}
+	return rc;
+}
+#endif
 
 int32_t msm_camera_qup_i2c_write(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
@@ -226,6 +284,46 @@ int32_t msm_camera_qup_i2c_write_seq(struct msm_camera_i2c_client *client,
 	return rc;
 }
 
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+int32_t msm_camera_qup_i2c_write_data(struct msm_camera_i2c_client *client,
+	uint32_t addr, uint8_t *data, uint32_t num_byte,
+	uint8_t *data2, uint32_t size)
+{
+	int32_t rc = -EFAULT;
+	unsigned char buf[client->addr_type];
+	uint32_t len = 0, j = 0;
+
+	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
+		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
+		|| num_byte == 0)
+		return rc;
+
+	if (client->addr_type == MSM_CAMERA_I2C_BYTE_ADDR) {
+		buf[0] = addr;
+		S_I2C_DBG("%s byte %d: 0x%x\n", __func__,
+			len, buf[len]);
+		len = 1;
+	} else if (client->addr_type == MSM_CAMERA_I2C_WORD_ADDR) {
+		buf[0] = addr >> BITS_PER_BYTE;
+		buf[1] = addr;
+		S_I2C_DBG("%s byte %d: 0x%x\n", __func__,
+			len, buf[len]);
+		S_I2C_DBG("%s byte %d: 0x%x\n", __func__,
+			len+1, buf[len+1]);
+		len = 2;
+	}
+
+	j = num_byte - size;
+	S_I2C_DBG("%s reg addr = 0x%x num bytes: %d, %d\n",
+			  __func__, addr, num_byte, j);
+
+	rc = msm_camera_qup_i2c_txdata(client, data2, len+num_byte);
+	if (rc < 0)
+		S_I2C_DBG("%s fail\n", __func__);
+	return rc;
+}
+#endif
+
 int32_t msm_camera_qup_i2c_write_table(struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_setting *write_setting)
 {
@@ -273,6 +371,9 @@ int32_t msm_camera_qup_i2c_write_seq_table(struct msm_camera_i2c_client *client,
 	int i;
 	int32_t rc = -EFAULT;
 	struct msm_camera_i2c_seq_reg_array *reg_setting;
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+	struct msm_camera_i2c_seq_reg_data *reg_data;
+#endif
 	uint16_t client_addr_type;
 
 	if (!client || !write_setting)
@@ -290,8 +391,20 @@ int32_t msm_camera_qup_i2c_write_seq_table(struct msm_camera_i2c_client *client,
 	client->addr_type = write_setting->addr_type;
 
 	for (i = 0; i < write_setting->size; i++) {
+#ifdef CONFIG_SMARTISAN_MSM8974SFO
+		if (reg_setting->reg_data_size <= I2C_SEQ_REG_DATA_MAX) {
+			rc = msm_camera_qup_i2c_write_seq(client, reg_setting->reg_addr,
+				reg_setting->reg_data, reg_setting->reg_data_size);
+		} else {
+			reg_data = (struct msm_camera_i2c_seq_reg_data *) reg_setting;
+			rc = msm_camera_qup_i2c_write_data(client, reg_data->reg_addr,
+				reg_data->reg_data, reg_data->reg_data_size,
+				reg_data->data, reg_data->data_size);
+		}
+#else
 		rc = msm_camera_qup_i2c_write_seq(client, reg_setting->reg_addr,
 			reg_setting->reg_data, reg_setting->reg_data_size);
+#endif
 		if (rc < 0)
 			break;
 		reg_setting++;
